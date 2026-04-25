@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ShopWave — Delivery</title>
+  <link rel="stylesheet" href="../shared/css/global.css">
+  <link rel="stylesheet" href="../shared/css/panel.css">
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+</head>
+<body>
+
+<div id="sw-loader"><div class="sw-spin"></div><span class="sw-spin-label">LOADING…</span></div>
+<div id="sw-toasts"></div>
+
+<div class="panel-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo-row">
+      <div class="sidebar-logo-box">SW</div>
+      <div><div class="sidebar-brand">ShopWave</div><div class="sidebar-role">Delivery Panel</div></div>
+    </div>
+    <div class="sidebar-user">
+      <img class="sidebar-avatar" id="sb-avatar" src="" alt="avatar" onerror="this.src='https://ui-avatars.com/api/?name=D&background=ff4d00&color=fff'">
+      <div><div class="sidebar-uname" id="sb-name">Partner</div><div class="sidebar-uemail" id="sb-email"></div></div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">Overview</div>
+      <button class="nav-item active" data-page="dashboard" onclick="go('dashboard',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Dashboard
+      </button>
+      <div class="nav-section">Deliveries</div>
+      <button class="nav-item" data-page="active" onclick="go('active',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10m13 0h1a1 1 0 001-1v-4"/></svg>
+        Active Orders
+        <span class="n-badge hidden" id="active-badge">0</span>
+      </button>
+      <button class="nav-item" data-page="history" onclick="go('history',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        History
+      </button>
+      <div class="nav-section">Account</div>
+      <button class="nav-item" data-page="profile" onclick="go('profile',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+        Profile
+      </button>
+    </nav>
+    <div class="sidebar-foot">
+      <button class="sidebar-logout" onclick="doSignOut()">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="15" height="15"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+        Sign Out
+      </button>
+    </div>
+  </aside>
+
+  <div class="sidebar-veil" id="sb-veil" onclick="closeSidebar()"></div>
+
+  <main class="panel-main">
+    <header class="panel-topbar">
+      <button class="topbar-hamburger" onclick="openSidebar()">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="22" height="22"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <span class="topbar-title" id="page-title">Dashboard</span>
+      <div class="topbar-right">
+        <button class="btn btn-ghost btn-icon" onclick="toggleTheme()">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="19" height="19"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="panel-content" id="panel-content"></div>
+  </main>
+</div>
+
+<script src="../shared/js/config.js"></script>
+<script>
+/* ============================================================
+   SHOPWAVE — Delivery Panel
+   ============================================================ */
+'use strict';
+
+let _user    = null;
+let _partner = null;
+
+/* ── Boot ── */
+(async function boot() {
+  applyTheme();
+  showLoader(true);
+  auth.onAuthStateChanged(async fireUser => {
+    if (!fireUser) {
+      showLoader(false);
+      document.getElementById('panel-content').innerHTML = `
+        <div class="status-screen">
+          <div class="status-card">
+            <div class="status-icon">🔐</div>
+            <h2>Not Signed In</h2>
+            <p>Sign in with your Google account to access the Delivery Panel.</p>
+            <a href="../login.html" class="btn btn-primary" style="display:inline-flex">Sign In with Google</a>
+          </div>
+        </div>`;
+      return;
+    }
+    const snap = await db.collection('users').doc(fireUser.uid).get();
+    const data = snap.data() || {};
+    _user = { uid: fireUser.uid, photoURL: fireUser.photoURL, ...data };
+
+    const dpSnap = await db.collection('deliveryPartners').where('userId','==',fireUser.uid).limit(1).get();
+
+    if (data.role !== 'delivery' && data.role !== 'admin') {
+      if (dpSnap.empty) {
+        updateSidebar(); showLoader(false); renderRegister(); return;
+      }
+      const pd = dpSnap.docs[0].data();
+      if (pd.status !== 'approved') {
+        updateSidebar(); showLoader(false); renderPending(pd.status); return;
+      }
+    }
+
+    _partner = dpSnap.empty ? null : { id: dpSnap.docs[0].id, ...dpSnap.docs[0].data() };
+    updateSidebar();
+    await loadActiveBadge();
+    showLoader(false);
+    go('dashboard');
+  });
+})();
+
+function applyTheme() { document.documentElement.setAttribute('data-theme', localStorage.getItem('sw-theme') || 'light'); }
+function toggleTheme() {
+  const t = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', t); localStorage.setItem('sw-theme', t);
+}
+function updateSidebar() {
+  if (!_user) return;
+  const av = document.getElementById('sb-avatar');
+  const nm = document.getElementById('sb-name');
+  const em = document.getElementById('sb-email');
+  if (av) av.src = _user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(_user.name||'D')}&background=ff4d00&color=fff`;
+  if (nm) nm.textContent = _user.name  || 'Partner';
+  if (em) em.textContent = _user.email || '';
+}
+function openSidebar()  { document.getElementById('sidebar').classList.add('open'); document.getElementById('sb-veil').classList.add('open'); }
+function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sb-veil').classList.remove('open'); }
+async function doSignOut() { await auth.signOut(); window.location.href = '../login.html'; }
+
+async function loadActiveBadge() {
+  try {
+    const snap = await db.collection('orders').where('deliveryPartnerId','==',_user.uid).where('status','in',['shipped','out_for_delivery']).get();
+    const b = document.getElementById('active-badge');
+    if (b && snap.size > 0) { b.textContent = snap.size; b.classList.remove('hidden'); }
+  } catch(_) {}
+}
+
+const TITLES = { dashboard:'Dashboard', active:'Active Orders', history:'Delivery History', profile:'Profile' };
+function go(page, triggerEl = null) {
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const t = triggerEl || document.querySelector(`[data-page="${page}"]`);
+  if (t) t.classList.add('active');
+  document.getElementById('page-title').textContent = TITLES[page] || page;
+  closeSidebar();
+  document.getElementById('panel-content').className = 'panel-content page';
+  switch (page) {
+    case 'dashboard': renderDashboard(); break;
+    case 'active':    renderActive();    break;
+    case 'history':   renderHistory();   break;
+    case 'profile':   renderProfile();   break;
+  }
+}
+
+/* ── Registration ── */
+function renderRegister() {
+  document.getElementById('panel-content').innerHTML = `
+  <div class="page" style="max-width:520px;margin:36px auto">
+    <h2 style="font-family:var(--f-display);font-size:1.5rem;font-weight:800;margin-bottom:6px">Become a Delivery Partner 🚚</h2>
+    <p class="text-muted" style="margin-bottom:24px">Register to start earning. Admin reviews within 24 hrs.</p>
+    <div class="card"><div class="card-body">
+      <div class="field"><label>Full Name *</label><input class="input" id="r-name"    value="${_user?.name||''}" placeholder="Your full name"></div>
+      <div class="field"><label>Phone *</label><input class="input" id="r-phone"   type="tel" placeholder="+91 XXXXXXXXXX"></div>
+      <div class="grid-2">
+        <div class="field"><label>Vehicle *</label>
+          <select class="input" id="r-vehicle">
+            <option value="">Select…</option>
+            <option>Bicycle</option><option>Motorcycle</option><option>Scooter</option><option>Car</option><option>Van</option>
+          </select>
+        </div>
+        <div class="field"><label>Vehicle No.</label><input class="input" id="r-vnum" placeholder="MH 01 AB 1234"></div>
+      </div>
+      <div class="grid-2">
+        <div class="field"><label>License No.</label><input class="input" id="r-lic" placeholder="License number"></div>
+        <div class="field"><label>City *</label><input class="input" id="r-city" placeholder="Delivery city"></div>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="submitRegister()">Submit Application →</button>
+    </div></div>
+  </div>`;
+}
+
+async function submitRegister() {
+  const name    = document.getElementById('r-name')?.value.trim();
+  const phone   = document.getElementById('r-phone')?.value.trim();
+  const vehicle = document.getElementById('r-vehicle')?.value;
+  const city    = document.getElementById('r-city')?.value.trim();
+  if (!name || !phone || !vehicle || !city) { toast('Fill all required fields','warning'); return; }
+  showLoader(true);
+  try {
+    await db.collection('deliveryPartners').add({
+      userId: _user.uid, name, email: _user.email, phone, vehicle,
+      vehicleNumber: document.getElementById('r-vnum')?.value.trim()||'',
+      license:       document.getElementById('r-lic')?.value.trim()||'',
+      city, status: 'pending', createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    await db.collection('users').doc(_user.uid).update({ role: 'delivery_pending' });
+    showLoader(false);
+    toast('Application submitted!','success');
+    renderPending('pending');
+  } catch(e) { showLoader(false); toast('Failed: '+e.message,'error'); }
+}
+
+function renderPending(status) {
+  document.getElementById('panel-content').innerHTML = `
+  <div class="status-screen">
+    <div class="status-card">
+      <div class="status-icon">${status==='rejected'?'❌':'⏳'}</div>
+      <h2>${status==='rejected'?'Application Rejected':'Under Review'}</h2>
+      <p>${status==='rejected'?'Your application was not approved. Contact support.':'Your application is being reviewed. Approval usually takes 24 hrs.'}</p>
+      <button class="btn btn-secondary" onclick="doSignOut()">Sign Out</button>
+    </div>
+  </div>`;
+}
+
+/* ── Dashboard ── */
+async function renderDashboard() {
+  const el = document.getElementById('panel-content');
+  el.innerHTML = `<div class="skel-card" style="height:110px;margin-bottom:16px"></div><div class="skel-card" style="height:300px"></div>`;
+  try {
+    const snap   = await db.collection('orders').where('deliveryPartnerId','==',_user.uid).get();
+    const orders = snap.docs.map(d => ({id:d.id,...d.data()}));
+    const done   = orders.filter(o => o.status==='delivered');
+    const active = orders.filter(o => ['shipped','out_for_delivery'].includes(o.status));
+
+    el.innerHTML = `
+    <div class="page">
+      <div class="stats-row">
+        <div class="stat-card"><div class="stat-ico ico-green">✅</div><div><div class="stat-val">${done.length}</div><div class="stat-lbl">Delivered</div></div></div>
+        <div class="stat-card"><div class="stat-ico ico-orange">🚚</div><div><div class="stat-val">${active.length}</div><div class="stat-lbl">Active</div></div></div>
+        <div class="stat-card"><div class="stat-ico ico-blue">📦</div><div><div class="stat-val">${orders.length}</div><div class="stat-lbl">Total Assigned</div></div></div>
+        <div class="stat-card"><div class="stat-ico ico-yellow">⭐</div><div><div class="stat-val">${done.length>0?'4.8':'—'}</div><div class="stat-lbl">Rating</div></div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span style="font-family:var(--f-display);font-weight:700">Active Deliveries</span>
+          <button class="btn btn-primary btn-sm" onclick="go('active')">View all</button>
+        </div>
+        ${active.length ? active.slice(0,3).map(o => activeOrderCard(o)).join('') : `
+        <div class="empty" style="padding:40px">
+          <div class="empty-icon">🚚</div>
+          <h3>No active deliveries</h3>
+          <p>Orders assigned by admin will appear here</p>
+        </div>`}
+      </div>
+    </div>`;
+  } catch(e) { el.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><h3>${e.message}</h3></div>`; }
+}
+
+function activeOrderCard(o) {
+  return `
+  <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div>
+        <p style="font-family:var(--f-display);font-weight:700">#${(o.orderId||o.id.slice(0,8)).toUpperCase()}</p>
+        <p style="font-size:.78rem;color:var(--txt-2)">${fmtDate(o.createdAt)} · ${(o.items||[]).length} item(s)</p>
+      </div>
+      ${badge(o.status)}
+    </div>
+    <div style="background:var(--bg);border-radius:var(--r-md);padding:11px;margin-bottom:11px;font-size:.84rem">
+      <p style="font-weight:700">📍 ${o.address?.name}</p>
+      <p style="color:var(--txt-2)">${o.address?.street}, ${o.address?.city}</p>
+      <p style="color:var(--txt-3)">📞 ${o.address?.phone}</p>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${o.status==='shipped' ? `<button class="btn btn-primary btn-sm" onclick="updateStatus('${o.id}','out_for_delivery')">🛵 Out for Delivery</button>` : ''}
+      <button class="btn btn-green btn-sm" onclick="updateStatus('${o.id}','delivered')">✅ Mark Delivered</button>
+    </div>
+  </div>`;
+}
+
+/* ── Active orders ── */
+async function renderActive() {
+  const el = document.getElementById('panel-content');
+  el.innerHTML = `<div class="skel-card" style="height:300px"></div>`;
+  try {
+    const snap   = await db.collection('orders').where('deliveryPartnerId','==',_user.uid).where('status','in',['shipped','out_for_delivery']).get();
+    const orders = snap.docs.map(d => ({id:d.id,...d.data()}));
+    el.innerHTML = `
+    <div class="page">
+      <div class="pg-head"><h2>Active Orders (${orders.length})</h2></div>
+      ${orders.map(o => `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head">
+          <div>
+            <p style="font-family:var(--f-display);font-weight:700">#${(o.orderId||o.id.slice(0,8)).toUpperCase()}</p>
+            <p style="font-size:.78rem;color:var(--txt-2)">${fmtDate(o.createdAt)} · ${money(o.total)}</p>
+          </div>
+          ${badge(o.status)}
+        </div>
+        <div class="card-body">
+          <div style="background:var(--bg);border-radius:var(--r-md);padding:13px;margin-bottom:13px">
+            <p style="font-weight:700;margin-bottom:3px">📦 Items:</p>
+            ${(o.items||[]).map(i=>`<p style="font-size:.83rem;color:var(--txt-2)">• ${i.name} × ${i.qty}</p>`).join('')}
+          </div>
+          <div style="background:var(--bg);border-radius:var(--r-md);padding:13px;margin-bottom:13px">
+            <p style="font-weight:700;margin-bottom:5px">📍 Delivery Address:</p>
+            <p style="font-weight:700;font-size:.9rem">${o.address?.name}</p>
+            <p style="font-size:.84rem;color:var(--txt-2);line-height:1.5">${o.address?.street}, ${o.address?.city}, ${o.address?.state} — ${o.address?.pincode}</p>
+            <p style="font-size:.8rem;color:var(--txt-3);margin-top:4px">📞 ${o.address?.phone}</p>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            ${o.status==='shipped' ? `<button class="btn btn-primary" onclick="updateStatus('${o.id}','out_for_delivery')">🛵 Out for Delivery</button>` : ''}
+            <button class="btn btn-green" onclick="updateStatus('${o.id}','delivered')">✅ Mark as Delivered</button>
+          </div>
+        </div>
+      </div>`).join('') || `
+      <div class="empty">
+        <div class="empty-icon">🚚</div>
+        <h3>No active deliveries</h3>
+        <p>Orders assigned to you will appear here</p>
+      </div>`}
+    </div>`;
+  } catch(e) { el.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><h3>${e.message}</h3></div>`; }
+}
+
+/* ── Update delivery status ── */
+async function updateStatus(orderId, status) {
+  showLoader(true);
+  try {
+    await db.collection('orders').doc(orderId).update({ status, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    toast(`Marked as ${status.replace('_',' ')}!`, 'success');
+    showLoader(false);
+    go('active');
+  } catch(e) { showLoader(false); toast('Failed: '+e.message,'error'); }
+}
+
+/* ── History ── */
+async function renderHistory() {
+  const el = document.getElementById('panel-content');
+  el.innerHTML = `<div class="skel-card" style="height:300px"></div>`;
+  try {
+    const snap   = await db.collection('orders').where('deliveryPartnerId','==',_user.uid).where('status','==','delivered').get();
+    const orders = snap.docs.map(d => ({id:d.id,...d.data()}));
+    el.innerHTML = `
+    <div class="page">
+      <div class="pg-head"><h2>Delivery History (${orders.length})</h2></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Order ID</th><th>Customer</th><th>City</th><th>Items</th><th>Amount</th><th>Date</th></tr></thead>
+          <tbody>
+            ${orders.map(o=>`
+            <tr>
+              <td style="font-family:var(--f-display);font-weight:700;font-size:.82rem">#${(o.orderId||o.id.slice(0,8)).toUpperCase()}</td>
+              <td>${o.userName||'—'}</td>
+              <td style="color:var(--txt-2)">${o.address?.city||'—'}</td>
+              <td>${(o.items||[]).length}</td>
+              <td style="font-weight:700;color:var(--green)">${money(o.total)}</td>
+              <td style="font-size:.8rem;color:var(--txt-2)">${fmtDate(o.createdAt)}</td>
+            </tr>`).join('') || `<tr><td colspan="6"><div class="empty" style="padding:36px"><div class="empty-icon">📦</div><h3>No deliveries yet</h3></div></td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  } catch(e) { el.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><h3>${e.message}</h3></div>`; }
+}
+
+/* ── Profile ── */
+function renderProfile() {
+  const el = document.getElementById('panel-content');
+  el.innerHTML = `
+  <div class="page">
+    <div class="pg-head"><h2>Profile</h2></div>
+    <div style="max-width:580px;display:flex;flex-direction:column;gap:16px">
+      <div class="card"><div class="card-body" style="display:flex;align-items:center;gap:18px">
+        <img src="${_user.photoURL||`https://ui-avatars.com/api/?name=${encodeURIComponent(_user.name||'D')}&background=ff4d00&color=fff`}"
+             style="width:76px;height:76px;border-radius:50%;border:3px solid var(--brand);object-fit:cover">
+        <div>
+          <h2 style="font-family:var(--f-display);font-size:1.25rem">${_user.name||'Partner'}</h2>
+          <p class="text-muted">${_user.email}</p>
+          <span class="badge badge--green" style="margin-top:6px">✓ Verified Partner</span>
+        </div>
+      </div></div>
+
+      ${_partner ? `
+      <div class="card"><div class="card-body">
+        <h3 style="font-family:var(--f-display);margin-bottom:14px">Partner Details</h3>
+        <div class="grid-2" style="font-size:.88rem;gap:10px">
+          <div><p class="text-muted" style="font-size:.75rem">Vehicle</p><p style="font-weight:700">${_partner.vehicle||'—'}</p></div>
+          <div><p class="text-muted" style="font-size:.75rem">Vehicle No.</p><p style="font-weight:700">${_partner.vehicleNumber||'—'}</p></div>
+          <div><p class="text-muted" style="font-size:.75rem">Phone</p><p style="font-weight:700">${_partner.phone||'—'}</p></div>
+          <div><p class="text-muted" style="font-size:.75rem">City</p><p style="font-weight:700">${_partner.city||'—'}</p></div>
+          <div><p class="text-muted" style="font-size:.75rem">License</p><p style="font-weight:700">${_partner.license||'—'}</p></div>
+          <div><p class="text-muted" style="font-size:.75rem">Status</p>${badge(_partner.status||'pending')}</div>
+        </div>
+      </div></div>` : ''}
+
+      <button class="btn btn-red" style="align-self:flex-start" onclick="doSignOut()">Sign Out</button>
+    </div>
+  </div>`;
+}
+</script>
+</body>
+</html>
