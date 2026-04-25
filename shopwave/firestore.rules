@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function authed()       { return request.auth != null; }
+    function uid()          { return request.auth.uid; }
+    function role()         { return get(/databases/$(database)/documents/users/$(uid())).data.role; }
+    function isAdmin()      { return authed() && role() == 'admin'; }
+    function isSeller()     { return authed() && role() == 'seller'; }
+    function isDelivery()   { return authed() && role() == 'delivery'; }
+
+    // Users — read by all logged in, write own doc or admin
+    match /users/{id} {
+      allow read:   if authed();
+      allow create: if authed() && uid() == id;
+      allow update: if authed() && (uid() == id || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // Products — public read, sellers write own, admin all
+    match /products/{id} {
+      allow read:   if true;
+      allow create: if isSeller() || isAdmin();
+      allow update: if isAdmin() || (isSeller() && resource.data.sellerId == uid());
+      allow delete: if isAdmin() || (isSeller() && resource.data.sellerId == uid());
+    }
+
+    // Orders
+    match /orders/{id} {
+      allow read:   if authed() && (resource.data.userId == uid() || resource.data.deliveryPartnerId == uid() || isSeller() || isAdmin());
+      allow create: if authed();
+      allow update: if isAdmin() || isSeller() || (isDelivery() && resource.data.deliveryPartnerId == uid()) || (authed() && resource.data.userId == uid() && resource.data.status == 'pending');
+      allow delete: if isAdmin();
+    }
+
+    // Categories & Payments — public read, admin write
+    match /categories/{id} { allow read: if true;    allow write: if isAdmin(); }
+    match /payments/{id}   { allow read: if true;    allow write: if isAdmin(); }
+
+    // Sellers & Delivery partners
+    match /sellers/{id}          { allow read: if authed(); allow create: if authed(); allow update: if isAdmin() || (authed() && resource.data.userId == uid()); allow delete: if isAdmin(); }
+    match /deliveryPartners/{id} { allow read: if authed(); allow create: if authed(); allow update: if isAdmin() || (authed() && resource.data.userId == uid()); allow delete: if isAdmin(); }
+
+    // App settings
+    match /settings/{id} { allow read: if authed(); allow write: if isAdmin(); }
+
+    // Upload limits (admin writes, sellers read their own)
+    match /uploadLimits/{userId} {
+      allow read:  if authed() && (uid() == userId || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // Admin image library
+    match /adminImages/{id} {
+      allow read:  if authed();
+      allow write: if isAdmin();
+    }
+  }
+}
